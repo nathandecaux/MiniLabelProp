@@ -68,10 +68,11 @@ def get_successive_fields(X,model):
     X=X[0]
     fields_up=[]
     fields_down=[]
-    for i,x1 in enumerate(X):
+    for i in range(X.shape[0]-1):
+        x1=X[i]
         x2=X[i+1]
-        fields_up.append(model(x1,x2)[1])
-        fields_down.append(model(x2,x1)[1])
+        fields_up.append(model(to_batch(x1,'cuda'),to_batch(x2,'cuda'))[1])
+        fields_down.append(model(to_batch(x2,'cuda'),to_batch(x1,'cuda'))[1])
     return fields_up,fields_down
 
 def propagate_labels(X,Y,model,model_down=None):
@@ -110,19 +111,20 @@ def propagate_labels(X,Y,model,model_down=None):
     return Y,Y2
 
 def propagate_by_composition(X,Y,model):
-    Y_up=Y
+    Y_up=torch.clone(Y)
     Y_down=torch.clone(Y)
     model.eval().to('cuda')
     model.freeze()
     fields_up,fields_down=get_successive_fields(X,model)
     X=X[0]
     chunks=get_chunks(Y)
+    Y=Y.unsqueeze(0).to('cuda')
     for chunk in chunks:
         for i in list(range(*chunk))[1:]:
-            composed_field_up=model.compose_list(fields_up[chunk[0]:i])
-            composed_field_down=model.compose_list(fields_down[i:chunk[1]])
-            Y_up[i]=model.apply_trans(Y[chunk[0]],composed_field_up)
-            Y_down[i]=model.apply_trans(Y[chunk[1]],composed_field_down)
+            composed_field_up=model.compose_list(fields_up[chunk[0]:i]).to('cuda')
+            composed_field_down=model.compose_list(fields_down[i:chunk[1]][::-1]).to('cuda')
+            Y_up[:,i]=model.apply_deform(Y[:,:,chunk[0]],composed_field_up).cpu().detach()[0]
+            Y_down[:,i]=model.apply_deform(Y[:,:,chunk[1]],composed_field_down).cpu().detach()[0]
     return Y_up,Y_down
 
 def compute_metrics(y_pred,y):
@@ -223,7 +225,8 @@ def train_and_eval(datamodule,model_PARAMS,max_epochs,ckpt=None):
     datamodule.setup('test')
     X,Y=datamodule.test_dataloader().dataset[0]
     Y=remove_annotations(Y,model_PARAMS['selected_slices'])
-    Y_up,Y_down=propagate_labels(X,Y,model)
+    # Y_up,Y_down=propagate_labels(X,Y,model)
+    Y_up,Y_down=propagate_by_composition(X,Y,model)
     res=get_dices(Y_dense,Y_up,Y_down,model_PARAMS['selected_slices'])
     res['ckpt']=checkpoint_callback.best_model_path if ckpt==None else ckpt
     return model,Y_up,Y_down,res

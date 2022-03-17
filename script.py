@@ -5,12 +5,14 @@ from os.path import join
 
 #Init vars
 checkpoint=None
-max_epochs=50
+if checkpoint!=None:
+    checkpoint=f'checkpoints/bench/{checkpoint}'
+max_epochs=100
 data_dir="/home/nathan/PLEX/norm/sub-000"
 selected_slices=[107,153,199]
 way='both'
 shape=(256,256)
-by_composition=False
+by_composition=True
 n_classes=2
 losses={'compo-reg-up':True,'compo-reg-down':True,'compo-dice-up':True,'compo-dice-down':True,'bidir-cons-reg':False,'bidir-cons-dice':False}
 model_PARAMS={'n_classes':n_classes,'way':way,'shape':shape,'selected_slices':selected_slices,'losses':losses,'by_composition':by_composition}
