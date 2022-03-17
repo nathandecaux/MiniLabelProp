@@ -1,0 +1,3 @@
+*.pyc
+*.ckpt
+lightning_logs
