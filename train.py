@@ -20,6 +20,20 @@ def to_batch(x,device='cpu'):
 def hardmax(Y,dim):
     return torch.moveaxis(F.one_hot(torch.argmax(Y,dim),11), -1, dim)
 
+def get_chunks(Y):
+    chunks=[]
+    chunk=[]
+    #Identifying chunks (i->j)
+    for i in range(Y.shape[1]):
+        y=Y[:,i]
+        if len(torch.unique(torch.argmax(y,1)))>1:
+            chunk.append(i)
+        if len(chunk)==2:
+            chunks.append(chunk)
+            chunk=[i]
+    return chunks
+  
+
 def remove_annotations(Y,selected_slices):
     if selected_slices!=None:
         for i in range(Y.shape[1]):
@@ -50,6 +64,15 @@ def get_weights(Y):
                 n+=1
     return (torch.arctan(weights)/3.14+0.5)
 
+def get_successive_fields(X,model):
+    X=X[0]
+    fields_up=[]
+    fields_down=[]
+    for i,x1 in enumerate(X):
+        x2=X[i+1]
+        fields_up.append(model(x1,x2)[1])
+        fields_down.append(model(x2,x1)[1])
+    return fields_up,fields_down
 
 def propagate_labels(X,Y,model,model_down=None):
     Y2=deepcopy(Y)
@@ -85,6 +108,22 @@ def propagate_labels(X,Y,model,model_down=None):
                 count_down+=1
     print('counts',count_up,count_down)
     return Y,Y2
+
+def propagate_by_composition(X,Y,model):
+    Y_up=Y
+    Y_down=torch.clone(Y)
+    model.eval().to('cuda')
+    model.freeze()
+    fields_up,fields_down=get_successive_fields(X,model)
+    X=X[0]
+    chunks=get_chunks(Y)
+    for chunk in chunks:
+        for i in list(range(*chunk))[1:]:
+            composed_field_up=model.compose_list(fields_up[chunk[0]:i])
+            composed_field_down=model.compose_list(fields_down[i:chunk[1]])
+            Y_up[i]=model.apply_trans(Y[chunk[0]],composed_field_up)
+            Y_down[i]=model.apply_trans(Y[chunk[1]],composed_field_down)
+    return Y_up,Y_down
 
 def compute_metrics(y_pred,y):
     dices=[]
@@ -158,6 +197,7 @@ def get_dices(Y_dense,Y,Y2,selected_slices):
     return dices
 
 
+
 def train_and_eval(datamodule,model_PARAMS,max_epochs,ckpt=None):
     # datetime object containing current date and time
     now = datetime.now()
@@ -186,7 +226,7 @@ def train_and_eval(datamodule,model_PARAMS,max_epochs,ckpt=None):
     Y_up,Y_down=propagate_labels(X,Y,model)
     res=get_dices(Y_dense,Y_up,Y_down,model_PARAMS['selected_slices'])
     res['ckpt']=checkpoint_callback.best_model_path if ckpt==None else ckpt
-    return Y_up,Y_down,res
+    return model,Y_up,Y_down,res
 
 
   
